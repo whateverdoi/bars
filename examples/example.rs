@@ -9,6 +9,7 @@ fn main() {
         timestamp: Utc::now(),
         price: 100.0,
         volume: 10,
+        direction:None,
     };
     println!("Tick: {:?}", tick);
 }

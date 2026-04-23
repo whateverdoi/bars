@@ -13,6 +13,7 @@ mod tests {
             timestamp: Utc::now(),
             price: 100.0,
             volume: 10,
+            direction: None,
         };
         assert_eq!(tick.price, 100.0);
     }

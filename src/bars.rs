@@ -6,10 +6,19 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 
 #[derive(Debug, Clone, Copy)]
 pub enum BarType {
+    // 标准bars
     Time(Duration),
     Tick(u64),
     Volume(u64),
     Dollar(f64),
+    
+    // 信息驱动bars
+    TickImbalance,
+    VolumeImbalance,
+    DollarImbalance,
+    TickRun,
+    VolumeRun,
+    DollarRun,
 }
 
 impl BarType {
@@ -86,6 +95,11 @@ impl BarAggregator {
             BarType::Tick(count) => self.tick_count >= count,
             BarType::Volume(vol) => (self.volume_sum as u64) >= vol,
             BarType::Dollar(amount) => self.dollar_sum >= amount,
+            // 信息驱动的bar类型不应该在这里处理
+            BarType::TickImbalance | BarType::VolumeImbalance | BarType::DollarImbalance |
+            BarType::TickRun | BarType::VolumeRun | BarType::DollarRun => {
+                panic!("Information-driven bar types should be handled by ImbalanceBarAggregator")
+            }
         }
     }
 

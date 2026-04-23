@@ -16,10 +16,13 @@
 
 **Tick Rule** 定义了一个序列 $\{b_t\}_{t=1,...,T}$，其中：
 
-$$b_t = \begin{cases} 
-b_{t-1} & \text{if } \Delta p_t = 0 \\
-\frac{|\Delta p_t|}{\Delta p_t} & \text{if } \Delta p_t \neq 0
-\end{cases}$$
+```math
+b_t =
+\begin{cases}
+b_{t-1}, & \text{if } \Delta p_t = 0 \\
+\operatorname{sign}(\Delta p_t), & \text{if } \Delta p_t \neq 0
+\end{cases}
+```
 
 其中 $b_t \in \{-1, 1\}$，边界条件 $b_0$ 设置为与紧邻前一个bar的终端值 $B_T$ 匹配。
 
@@ -27,13 +30,17 @@ b_{t-1} & \text{if } \Delta p_t = 0 \\
 
 Tick Imbalance是指在时间 $T$ 处累积的有符号ticks（按tick rule签名）的总和：
 
-$$\theta_T = \sum_{t=1}^{T} b_t$$
+```math
+\theta_T = \sum_{t=1}^{T} b_t
+```
 
 ### 期望值计算
 
 其次，我们计算bar开始时tick imbalance的期望值 $E_0[\theta_T]$：
 
-$$E_0[\theta_T] = E_0[T](P[b_t = 1] - P[b_t=-1])$$
+```math
+E_0[\theta_T] = E_0[T](P[b_t = 1] - P[b_t = -1])
+```
 
 其中：
 - $E_0[T]$ 是bar的期望长度（ticks数量）
@@ -41,7 +48,9 @@ $$E_0[\theta_T] = E_0[T](P[b_t = 1] - P[b_t=-1])$$
 - $P[b_t = -1]$ 是一个tick被分类为卖单的无条件概率
 
 由于 $P[b_t = 1] + P[b_t = -1] = 1$，我们可以估计：
-$$E_0[\theta_T] = E_0[T](2P[b_t = 1] - 1)$$
+```math
+E_0[\theta_T] = E_0[T](2P[b_t = 1] - 1)
+```
 
 实际上，我们可以将 $E_0[T]$ 估计为来自先前bars的 $T$ 值的指数加权移动平均线，将 $(2P[b_t = 1] - 1)$ 估计为来自先前bars的 $b_t$ 值的指数加权移动平均线。
 
@@ -49,7 +58,9 @@ $$E_0[\theta_T] = E_0[T](2P[b_t = 1] - 1)$$
 
 我们将 **Tick Imbalance Bar（TIB）** 定义为一个 $T^*$ 连续的tick子集，满足以下条件：
 
-$$T^* = \arg \min_T \left\{ |\theta_T| \geq E_0[T]|2P[b_t = 1] - 1| \right\}$$
+```math
+T^* = \operatorname*{arg\,min}_T \left\{ |\theta_T| \geq E_0[T] |2P[b_t = 1] - 1| \right\}
+```
 
 其中期望不平衡的大小由 $|2P[b_t = 1] - 1|$ 暗示。
 
@@ -73,7 +84,9 @@ $$T^* = \arg \min_T \left\{ |\theta_T| \geq E_0[T]|2P[b_t = 1] - 1| \right\}$$
 
 首先，我们在时间 $T$ 处定义不平衡为：
 
-$$\theta_T = \sum_{t=1}^{T} b_t v_t$$
+```math
+\theta_T = \sum_{t=1}^{T} b_t v_t
+```
 
 其中 $v_t$ 可以代表以下两种情况之一：
 - **VIB（成交量不平衡Bars）**：$v_t$ 表示交易的证券数量
@@ -85,25 +98,33 @@ $$\theta_T = \sum_{t=1}^{T} b_t v_t$$
 
 其次，我们在bar开始处计算 $\theta_T$ 的期望值 $E_0[\theta_T]$：
 
-$$E_0[\theta_T] = E_0\left[\sum_{t=1}^{T} b_t v_t\right] - E_0\left[\sum_{t=1}^{T} b_t v_t\right]$$
+```math
+\begin{aligned}
+E_0[\theta_T]
 
-$$= E_0[T](P[b_t=1]E_0[v_t|b_t=1] - P[b_t=-1]E_0[v_t|b_t=-1])$$
+&= E_0[T]\left(P[b_t = 1] E_0[v_t \mid b_t = 1] - P[b_t = -1] E_0[v_t \mid b_t = -1]\right)
+\end{aligned}
+```
 
 ### 成交量分解
 
-令 $v^+ = P[b_t=1]E_0[v_t|b_t=1]$ 和 $v^- = P[b_t=-1]E_0[v_t|b_t=-1]$，使得 $E_0[v_T] = E_0[\sum_t v_t] = E_0[v_t|]_{i=1}^T = E_0[v_t] = v^+ + v^-$。
+令 $v^+ = P[b_t = 1] E_0[v_t \mid b_t = 1]$ 和 $v^- = P[b_t = -1] E_0[v_t \mid b_t = -1]$，则 $E_0[v_t] = v^+ + v^-$。
 
 您可以将 $v^+$ 和 $v^-$ 理解为将初始期望 $v_t$ 分解为买单贡献的部分和卖单贡献的部分。
 
 因此：
 
-$$E_0[\theta_T] = E_0[T](v^+ - v^-) = E_0[T](2v^+ - E_0[v_t])$$
+```math
+E_0[\theta_T] = E_0[T](v^+ - v^-) = E_0[T](2v^+ - E_0[v_t])
+```
 
 ### VIB/DIB的定义
 
 我们将 **VIB或DIB** 定义为一个 $T^*$ 连续的tick子集，满足以下条件：
 
-$$T^* = \arg \min_T \left\{ |\theta_T| \geq E_0[T]|2v^+ - E_0[v_t]| \right\}$$
+```math
+T^* = \operatorname*{arg\,min}_T \left\{ |\theta_T| \geq E_0[T] |2v^+ - E_0[v_t]| \right\}
+```
 
 其中期望不平衡的大小由 $|2v^+ - E_0[v_t]|$ 暗示。当 $\theta_T$ 的不平衡程度超过预期时，较小的 $T$ 会满足这些条件。
 
@@ -133,7 +154,9 @@ TIBs、VIBs和DIBs通过tick、成交量和成交额来监控order flow的不平
 
 首先，我们定义当前运行的长度为：
 
-$$\theta_T = \max \left\{ \sum_{t|b_t=1}^{T} b_t - \sum_{t|b_t=-1}^{T} b_t \right\}$$
+```math
+\theta_T = \max\left\{ \sum_{\substack{t=1 \\ b_t=1}}^{T} b_t - \sum_{\substack{t=1 \\ b_t=-1}}^{T} b_t \right\}
+```
 
 这衡量同一方向上连续ticks的最大长度。
 
@@ -141,7 +164,9 @@ $$\theta_T = \max \left\{ \sum_{t|b_t=1}^{T} b_t - \sum_{t|b_t=-1}^{T} b_t \righ
 
 其次，我们在bar开始处计算 $\theta_T$ 的期望值：
 
-$$E_0[\theta_T] = E_0[T] \max\{P[b_t = 1], 1 - P[b_t = 1]\}$$
+```math
+E_0[\theta_T] = E_0[T] \max\{P[b_t = 1], 1 - P[b_t = 1]\}
+```
 
 ### 实际参数估计
 
@@ -151,7 +176,9 @@ $$E_0[\theta_T] = E_0[T] \max\{P[b_t = 1], 1 - P[b_t = 1]\}$$
 
 我们将 **Tick Runs Bar（TRB）** 定义为一个 $T^*$ 连续的tick子集，满足以下条件：
 
-$$T^* = \arg \min_T \{\theta_T \geq E_0[T]\max\{P[b_t = 1], 1 - P[b_t = 1]\}\}$$
+```math
+T^* = \operatorname*{arg\,min}_T \left\{ \theta_T \geq E_0[T] \max\{P[b_t = 1], 1 - P[b_t = 1]\} \right\}
+```
 
 其中期望的运行长度由 $\max\{P[b_t=1], 1-P[b_t=1]\}$ 暗示。当 $\theta_T$ 比预期更不平衡时，较低的 $T$ 满足这些条件。
 
@@ -173,7 +200,9 @@ $$T^* = \arg \min_T \{\theta_T \geq E_0[T]\max\{P[b_t = 1], 1 - P[b_t = 1]\}\}$$
 
 首先，我们定义与运行相关的成交量或成交额为：
 
-$$\theta_T = \max \left\{ \sum_{t|b_t=1}^{T} b_t v_t - \sum_{t|b_t=-1}^{T} b_t v_t \right\}$$
+```math
+\theta_T = \max\!\left\{ \sum_{\substack{t=1 \\ b_t=1}}^T b_t v_t - \sum_{\substack{t=1 \\ b_t=-1}}^T b_t v_t \right\}
+```
 
 其中 $v_t$ 可以代表以下两种情况之一：
 - **VRB（成交量Runs Bars）**：$v_t$ 表示交易的证券数量
@@ -183,13 +212,17 @@ $$\theta_T = \max \left\{ \sum_{t|b_t=1}^{T} b_t v_t - \sum_{t|b_t=-1}^{T} b_t v
 
 其次，我们在bar开始处计算 $\theta_T$ 的期望值：
 
-$$E_0[\theta_T] = E_0[T]\max\{P[b_t=1]E_0[v_t|b_t=1], (1-P[b_t=1])E_0[v_t|b_t=-1]\}$$
+```math
+E_0[\theta_T] = E_0[T] \max\{P[b_t = 1] E_0[v_t \mid b_t = 1], (1 - P[b_t = 1]) E_0[v_t \mid b_t = -1]\}
+```
 
 ### VRB/DRB的定义
 
 我们将 **Volume Runs Bar（VRB）或Dollar Runs Bar（DRB）** 定义为一个 $T^*$ 连续的tick子集，满足以下条件：
 
-$$T^* = \arg \min_T \{\theta_T \geq E_0[T]\max\{P[b_t=1]E_0[v_t|b_t=1], (1-P[b_t=1])E_0[v_t|b_t=-1]\}\}$$
+```math
+T^* = \operatorname*{arg\,min}_T \left\{ \theta_T \geq E_0[T] \max\{P[b_t = 1] E_0[v_t \mid b_t = 1], (1 - P[b_t = 1]) E_0[v_t \mid b_t = -1]\} \right\}
+```
 
 其中期望的运行成交量由 $\max\{P[b_t=1]E_0[v_t|b_t=1], (1-P[b_t=1])E_0[v_t|b_t=-1]\}$ 暗示。当 $\theta_T$ 比预期更多运行或运行的成交量更大时，较低的 $T$ 会满足这些条件。
 

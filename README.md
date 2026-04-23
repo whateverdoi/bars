@@ -35,7 +35,7 @@ cargo run -- --input data/DOGEUSDT-aggTrades-2026-03.csv --output data/test_volu
 | 1 | Time Bars | 时间间隔 | 最常见，按固定时间间隔采样 |
 | 2 | Tick Bars | 交易笔数 | 每 N 笔交易生成一个k线 |
 | 3 | Volume Bars | 成交量 | 每 N 单位成交生成一个k线 |
-| 4 | Dollar Bars | 美元价值 | 每 $N 价值生成一个k线 |
+| 4 | Dollar Bars | 美元价值 | 每 N 美元价值生成一个k线 |
 
 ### 1. 时间k线 (Time Bars)
 
@@ -47,12 +47,16 @@ cargo run -- --input data/DOGEUSDT-aggTrades-2026-03.csv --output data/test_volu
 | 缺点 | 不能根据市场活动调整采样频率，低交易量时段信息量少 |
 
 **计算方法**：
+```math
+\begin{aligned}
+\text{bar\_open\_time} &= \operatorname{round\_to\_period}(\text{tick.timestamp}) \\
+\text{tick\_count} &= 0 \\
+\text{volume\_sum} &= 0 \\
+\text{dollar\_sum} &= 0
+\end{aligned}
 ```
-bar_open_time = round_to_period(tick.timestamp)
-tick_count = 0
-volume_sum = 0
-dollar_sum = 0
 
+```text
 当 tick.timestamp - bar_open_time >= period 时:
     关闭当前 bar
     开始新 bar
@@ -68,11 +72,15 @@ dollar_sum = 0
 | 缺点 | 未考虑交易大小，单个大单和多笔小额交易产生相同数量的 k线 |
 
 **计算方法**：
+```math
+\begin{aligned}
+\text{tick\_count} &= 0 \\
+\text{tick\_count} &\leftarrow \text{tick\_count} + 1
+\end{aligned}
 ```
-tick_count = 0
 
+```text
 每收到一个 tick:
-    tick_count += 1
     当 tick_count >= EBT (Expected Ticks Per Bar) 时:
         关闭当前 bar
         开始新 bar
@@ -89,40 +97,69 @@ tick_count = 0
 | 缺点 | 价格大幅波动时，同样成交量可能产生不同美元价值 |
 
 **计算方法**：
+```math
+\begin{aligned}
+\text{volume\_sum} &= 0 \\
+\text{volume\_sum} &\leftarrow \text{volume\_sum} + v_t
+\end{aligned}
 ```
-volume_sum = 0
 
+```text
 每收到一个 tick:
-    volume_sum += tick.volume
-    当 volume_sum >= EVD (Expected Volume Per Dollar) 时:
+    当 volume_sum >= EVB (Expected Volume Per Bar) 时:
         关闭当前 bar
         开始新 bar
         volume_sum = 0
 ```
+
+### 4. Dollar Bars
+
+基于成交额采样，如每累计固定美元价值生成一个 k线。
+
+| 特点 | 说明 |
+|------|------|
+| 优点 | 同时考虑价格与成交量，比纯成交量采样更稳定 |
+| 缺点 | 对不同市场的价格尺度和成交活跃度更敏感 |
+
+## 信息驱动k线
+
+> 这类 k线 统称为 **Information-Driven Bars**，核心思想是根据市场信息决定何时生成 k线，而非固定时间间隔。
 
 ### 5. Tick Imbalance Bars (TIB)
 
 基于订单流不平衡度采样，捕捉买卖方向的不平衡信息。
 
 **计算方法**：
-```
 第一步：定义 Tick Rule（根据价格变化确定买卖方向）
-b_t = {
-    b_{t-1}                if Δp_t = 0       // 价格不变时，继承前一个方向
-    sign(Δp_t)            if Δp_t ≠ 0       // 价格上升为 +1（买），下降为 -1（卖）
-}
 
-第二步：累积有符号ticks
-θ_T = Σ(t=1 to T) b_t  // 累积买卖方向
+```math
+b_t =
+\begin{cases}
+    b_{t-1}, & \Delta p_t = 0 \\
+    \operatorname{sign}(\Delta p_t), & \Delta p_t \neq 0
+\end{cases}
+```
+
+第二步：累积有符号 ticks
+
+```math
+\theta_T = \sum_{t=1}^{T} b_t
+```
 
 第三步：计算期望不平衡
-E_0[T] = EMA(先前bars的T值)
-P[b_t=1] = EMA(先前bars的买单比例)
-E_0[θ_T] = E_0[T] × (2P[b_t=1] - 1)
+
+```math
+\begin{aligned}
+E_0[T] &= \operatorname{EMA}(T) \\
+P[b_t = 1] &= \operatorname{EMA}(\mathbf{1}_{b_t = 1}) \\
+E_0[\theta_T] &= E_0[T]\left(2P[b_t = 1] - 1\right)
+\end{aligned}
+```
 
 第四步：采样条件
-当 |θ_T| ≥ E_0[T] × |2P[b_t=1] - 1| 时：
-    关闭当前 bar，开始新 bar
+
+```math
+\left|\theta_T\right| \geq E_0[T]\left|2P[b_t = 1] - 1\right|
 ```
 
 ### 6. Volume Imbalance Bars (VIB)
@@ -130,16 +167,20 @@ E_0[θ_T] = E_0[T] × (2P[b_t=1] - 1)
 基于成交量不平衡度采样。
 
 **计算方法**：
+```math
+\theta_T = \sum_{t=1}^{T} b_t v_t
 ```
-θ_T = Σ(t=1 to T) b_t × v_t  // v_t 为成交量
 
-E_0[θ_T] = E_0[T] × (2v^+ - E_0[v_t])
-其中：
-  v^+ = P[b_t=1] × E_0[v_t|b_t=1]  // 买单平均成交量
-  v^- = P[b_t=-1] × E_0[v_t|b_t=-1]  // 卖单平均成交量
+```math
+\begin{aligned}
+v^+ &= P[b_t = 1] E_0[v_t \mid b_t = 1] \\
+v^- &= P[b_t = -1] E_0[v_t \mid b_t = -1] \\
+E_0[\theta_T] &= E_0[T](v^+ - v^-) = E_0[T]\left(2v^+ - E_0[v_t]\right)
+\end{aligned}
+```
 
-当 |θ_T| ≥ E_0[T] × |2v^+ - E_0[v_t]| 时：
-    关闭当前 bar
+```math
+\left|\theta_T\right| \geq E_0[T]\left|2v^+ - E_0[v_t]\right|
 ```
 
 ### 7. Dollar Imbalance Bars (DIB)
@@ -147,27 +188,27 @@ E_0[θ_T] = E_0[T] × (2v^+ - E_0[v_t])
 基于美元价值不平衡度采样。
 
 **计算方法**：
+```math
+\theta_T = \sum_{t=1}^{T} b_t (p_t v_t)
 ```
-θ_T = Σ(t=1 to T) b_t × (p_t × v_t)  // 美元价值
 
-期望值计算与 VIB 相同，只需将 v_t 替换为 p_t × v_t
-```
+期望值计算与 VIB 相同，只需将 $v_t$ 替换为 $p_t v_t$。
 
 ### 8. Tick Run Bars (TRB)
 
 基于连续同向交易检测。
 
 **计算方法**：
+```math
+\theta_T = \max\left\{ \sum_{\substack{t=1 \\ b_t=1}}^{T} b_t - \sum_{\substack{t=1 \\ b_t=-1}}^{T} b_t \right\}
 ```
-θ_T = max {
-    Σ(t|b_t=1) b_t,     // 买单tick总数
-    Σ(t|b_t=-1) |b_t|   // 卖单tick总数
-}
 
-E_0[θ_T] = E_0[T] × max{P[b_t=1], 1-P[b_t=1]}
+```math
+E_0[\theta_T] = E_0[T] \max\{P[b_t = 1], 1 - P[b_t = 1]\}
+```
 
-当 θ_T ≥ E_0[T] × max{P[b_t=1], 1-P[b_t=1]} 时：
-    关闭当前 bar
+```math
+T^* = \operatorname*{arg\,min}_T \left\{ \theta_T \geq E_0[T] \max\{P[b_t = 1], 1 - P[b_t = 1]\} \right\}
 ```
 
 ### 9. Volume Run Bars (VRB)
@@ -175,19 +216,22 @@ E_0[θ_T] = E_0[T] × max{P[b_t=1], 1-P[b_t=1]}
 基于连续同向成交量检测。
 
 **计算方法**：
+```math
+\theta_T = \max\!\left\{ \sum_{\substack{t=1 \\ b_t=1}}^T b_t v_t - \sum_{\substack{t=1 \\ b_t=-1}}^T b_t v_t \right\}
 ```
-θ_T = max {
-    Σ(t|b_t=1) b_t × v_t,      // 买单累积成交量
-    Σ(t|b_t=-1) |b_t| × v_t    // 卖单累积成交量
-}
 
-E_0[θ_T] = E_0[T] × max {
-    P[b_t=1] × E_0[v_t|b_t=1],
-    (1-P[b_t=1]) × E_0[v_t|b_t=-1]
-}
+```math
+E_0[\theta_T] = E_0[T] \max\left\{
+P[b_t = 1] E_0[v_t \mid b_t = 1],
+(1 - P[b_t = 1]) E_0[v_t \mid b_t = -1]
+\right\}
+```
 
-当 θ_T ≥ E_0[T] × max{...} 时：
-    关闭当前 bar
+```math
+T^* = \operatorname*{arg\,min}_T \left\{ \theta_T \geq E_0[T] \max\left\{
+P[b_t = 1] E_0[v_t \mid b_t = 1],
+(1 - P[b_t = 1]) E_0[v_t \mid b_t = -1]
+\right\} \right\}
 ```
 
 ### 10. Dollar Run Bars (DRB)
@@ -195,22 +239,29 @@ E_0[θ_T] = E_0[T] × max {
 基于连续同向美元价值检测。
 
 **计算方法**：
+```math
+\theta_T = \max\!\left\{ \sum_{\substack{t=1 \\ b_t=1}}^T b_t (p_t v_t) - \sum_{\substack{t=1 \\ b_t=-1}}^T b_t (p_t v_t) \right\}
 ```
-θ_T = max {
-    Σ(t|b_t=1) b_t × (p_t × v_t),      // 买单累积美元价值
-    Σ(t|b_t=-1) |b_t| × (p_t × v_t)    // 卖单累积美元价值
-}
 
-期望值计算与 VRB 相同，只需将 v_t 替换为 p_t × v_t
+```math
+E_0[\theta_T] = E_0[T] \max\left\{
+P[b_t = 1] E_0[p_t v_t \mid b_t = 1],
+(1 - P[b_t = 1]) E_0[p_t v_t \mid b_t = -1]
+\right\}
+```
+
+```math
+T^* = \operatorname*{arg\,min}_T \left\{ \theta_T \geq E_0[T] \max\left\{
+P[b_t = 1] E_0[p_t v_t \mid b_t = 1],
+(1 - P[b_t = 1]) E_0[p_t v_t \mid b_t = -1]
+\right\} \right\}
 ```
 
 ---
 
-## 信息驱动k线
+### 概览
 
-> 这类 k线 统称为 **Information-Driven Bars**，核心思想是根据市场信息决定何时生成 k线，而非固定时间间隔。
-
-### Imbalance Bars
+#### Imbalance Bars
 
 基于订单流不平衡度采样，捕捉买卖方向的不平衡信息。
 
@@ -222,67 +273,9 @@ E_0[θ_T] = E_0[T] × max {
 
 **优点**：可以捕捉订单流中的信息不对称，在价格即将上涨或下跌前生成 k线。
 
-#### 计算方法
 
-##### 1. Tick Imbalance Bars (TIB)
 
-**第一步**：定义 Tick Rule（根据价格变化确定买卖方向）
-```
-b_t = {
-    b_{t-1}                if Δp_t = 0       // 价格不变时，继承前一个方向
-    sign(Δp_t)            if Δp_t ≠ 0       // 价格上升为 +1（买），下降为 -1（卖）
-}
-```
-
-**第二步**：累积有符号ticks
-```
-θ_T = Σ(t=1 to T) b_t  // 累积买卖方向
-```
-
-**第三步**：计算期望不平衡
-```
-E_0[T] = EMA(先前bars的T值)
-P[b_t=1] = EMA(先前bars的买单比例)
-
-E_0[θ_T] = E_0[T] × (2P[b_t=1] - 1)
-```
-
-**第四步**：采样条件
-```
-当 |θ_T| ≥ E_0[T] × |2P[b_t=1] - 1| 时：
-    关闭当前 bar，开始新 bar
-    重置 θ_T = 0
-```
-
-##### 2. Volume Imbalance Bars (VIB)
-
-**计算方法**：类似 TIB，但将每个tick的成交量加权
-
-```
-θ_T = Σ(t=1 to T) b_t × v_t  // v_t 为第t笔交易的成交量
-
-E_0[θ_T] = E_0[T] × (2v^+ - E_0[v_t])
-其中：
-  v^+ = P[b_t=1] × E_0[v_t|b_t=1]  // 买单平均成交量
-  v^- = P[b_t=-1] × E_0[v_t|b_t=-1]  // 卖单平均成交量
-
-当 |θ_T| ≥ E_0[T] × |2v^+ - E_0[v_t]| 时：
-    关闭当前 bar
-```
-
-##### 3. Dollar Imbalance Bars (DIB)
-
-**计算方法**：类似 VIB，但使用美元价值代替成交量
-
-```
-θ_T = Σ(t=1 to T) b_t × (p_t × v_t)  // 美元价值 = 价格 × 成交量
-
-期望值计算与 VIB 相同，只需将 v_t 替换为 p_t × v_t
-```
-
----
-
-### Run Bars
+#### Run Bars
 
 基于连续同向交易检测，捕捉持续的趋势信息。
 
@@ -294,65 +287,11 @@ E_0[θ_T] = E_0[T] × (2v^+ - E_0[v_t])
 
 **优点**：可以检测持续的单边趋势，在趋势结束时生成 k线。
 
-#### 计算方法
-
-##### 1. Tick Run Bars (TRB)
-
-**第一步**：计算当前运行长度（同一方向的tick计数）
-```
-θ_T = max {
-    Σ(t|b_t=1) b_t,     // 买单tick总数
-    Σ(t|b_t=-1) |b_t|   // 卖单tick总数
-}
-```
-
-**第二步**：计算期望运行长度
-```
-E_0[T] = EMA(先前bars的T值)
-P[b_t=1] = EMA(先前bars的买单比例)
-
-E_0[θ_T] = E_0[T] × max{P[b_t=1], 1-P[b_t=1]}
-```
-
-**第三步**：采样条件
-```
-当 θ_T ≥ E_0[T] × max{P[b_t=1], 1-P[b_t=1]} 时：
-    关闭当前 bar
-```
 
 **关键特性**：允许序列中断，计数而非抵消
 
-##### 2. Volume Run Bars (VRB)
 
-**计算方法**：计算同一方向的累积成交量
 
-```
-θ_T = max {
-    Σ(t|b_t=1) b_t × v_t,      // 买单累积成交量
-    Σ(t|b_t=-1) |b_t| × v_t    // 卖单累积成交量
-}
-
-E_0[θ_T] = E_0[T] × max {
-    P[b_t=1] × E_0[v_t|b_t=1],
-    (1-P[b_t=1]) × E_0[v_t|b_t=-1]
-}
-
-当 θ_T ≥ E_0[T] × max{...} 时：
-    关闭当前 bar
-```
-
-##### 3. Dollar Run Bars (DRB)
-
-**计算方法**：计算同一方向的累积美元价值
-
-```
-θ_T = max {
-    Σ(t|b_t=1) b_t × (p_t × v_t),      // 买单累积美元价值
-    Σ(t|b_t=-1) |b_t| × (p_t × v_t)    // 卖单累积美元价值
-}
-
-期望值计算与 VRB 相同，只需将 v_t 替换为 p_t × v_t
-```
 
 ---
 

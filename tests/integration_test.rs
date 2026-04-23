@@ -3,8 +3,10 @@
 
 #[cfg(test)]
 mod tests {
-    use Bars::types::Tick;
-    use chrono::Utc;
+    use bars::bars::{BarAggregator, BarType};
+    use bars::information_driven::{ImbalanceBarAggregator, InformationDrivenBarType};
+    use bars::types::Tick;
+    use chrono::{TimeZone, Utc};
     use csv;
 
     #[test]
@@ -12,7 +14,7 @@ mod tests {
         let tick = Tick {
             timestamp: Utc::now(),
             price: 100.0,
-            volume: 10,
+            volume: 10.0,
             direction: None,
         };
         assert_eq!(tick.price, 100.0);
@@ -43,5 +45,34 @@ mod tests {
         let mut verify_reader = csv::ReaderBuilder::new().has_headers(true).from_path(output_path).unwrap();
         let count = verify_reader.records().count();
         assert_eq!(count, 5);
+    }
+
+    #[test]
+    fn test_standard_bar_close_aligns_timestamp_to_period() {
+        let mut aggregator = BarAggregator::new(BarType::time(60));
+        let tick = Tick::new(
+            Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 5).unwrap(),
+            100.0,
+            1.25,
+        );
+
+        let _ = aggregator.add_tick(tick);
+        let bar = aggregator.close().expect("expected final time bar");
+
+        assert_eq!(bar.timestamp, Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap());
+        assert_eq!(bar.volume, 1.25);
+    }
+
+    #[test]
+    fn test_info_driven_close_discards_incomplete_bar() {
+        let mut aggregator = ImbalanceBarAggregator::new(InformationDrivenBarType::TickImbalance, 0.2);
+        let tick = Tick::new(
+            Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 5).unwrap(),
+            100.0,
+            1.25,
+        );
+
+        let _ = aggregator.add_tick(tick);
+        assert!(aggregator.close().is_none());
     }
 }

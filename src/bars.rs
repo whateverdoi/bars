@@ -93,7 +93,7 @@ impl BarAggregator {
                 }
             }
             BarType::Tick(count) => self.tick_count >= count,
-            BarType::Volume(vol) => (self.volume_sum as u64) >= vol,
+            BarType::Volume(vol) => self.volume_sum >= vol as f64,
             BarType::Dollar(amount) => self.dollar_sum >= amount,
             // 信息驱动的bar类型不应该在这里处理
             BarType::TickImbalance | BarType::VolumeImbalance | BarType::DollarImbalance |
@@ -107,8 +107,8 @@ impl BarAggregator {
         self.bar_start_time = Some(tick.timestamp);
         self.bar_open_time = Some(self.round_to_period(tick.timestamp));
         self.tick_count = 1;
-        self.volume_sum = tick.volume as f64;
-        self.dollar_sum = tick.price * tick.volume as f64;
+        self.volume_sum = tick.volume;
+        self.dollar_sum = tick.price * tick.volume;
 
         self.current_bar = Some(Bar {
             open: tick.price,
@@ -134,8 +134,8 @@ impl BarAggregator {
 
     fn update_current_bar(&mut self, tick: Tick) {
         self.tick_count += 1;
-        self.volume_sum += tick.volume as f64;
-        self.dollar_sum += tick.price * tick.volume as f64;
+        self.volume_sum += tick.volume;
+        self.dollar_sum += tick.price * tick.volume;
 
         if let Some(bar) = &mut self.current_bar {
             bar.close = tick.price;
@@ -155,6 +155,6 @@ impl BarAggregator {
     }
 
     pub fn close(&mut self) -> Option<Bar> {
-        self.current_bar.take()
+        self.close_current_bar()
     }
 }

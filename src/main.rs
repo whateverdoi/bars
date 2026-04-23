@@ -1,6 +1,6 @@
-use Bars::bars::{BarAggregator, BarType};
-use Bars::information_driven::{ImbalanceBarAggregator, InformationDrivenBarType};
-use Bars::types::Tick;
+use bars::bars::{BarAggregator, BarType};
+use bars::information_driven::{ImbalanceBarAggregator, InformationDrivenBarType};
+use bars::types::Tick;
 use chrono::{TimeZone, Utc};
 use clap::{Parser, ValueEnum};
 use std::fs::File;
@@ -104,7 +104,7 @@ fn main() {
                     let transact_time: i64 = record.get(5).unwrap_or("0").parse().unwrap_or(0);
 
                     let timestamp = Utc.timestamp_millis_opt(transact_time).single().unwrap_or_else(Utc::now);
-                    let tick = Tick::new(timestamp, price, volume as u64);
+                    let tick = Tick::new(timestamp, price, volume);
 
                     if let Some(bar) = aggregator.add_tick(tick) {
                         let line = format!(
@@ -121,18 +121,7 @@ fn main() {
                 }
             }
 
-            if let Some(bar) = aggregator.close() {
-                let line = format!(
-                    "{},{},{},{},{},{}",
-                    bar.timestamp.format("%Y-%m-%d %H:%M:%S%.3f"),
-                    bar.open,
-                    bar.high,
-                    bar.low,
-                    bar.close,
-                    bar.volume
-                );
-                bars.push(line);
-            }
+            let _ = aggregator.close();
         }
         _ => {
             // 使用标准bars聚合器
@@ -145,7 +134,7 @@ fn main() {
                     let transact_time: i64 = record.get(5).unwrap_or("0").parse().unwrap_or(0);
 
                     let timestamp = Utc.timestamp_millis_opt(transact_time).single().unwrap_or_else(Utc::now);
-                    let tick = Tick::new(timestamp, price, volume as u64);
+                    let tick = Tick::new(timestamp, price, volume);
 
                     if let Some(bar) = aggregator.add_tick(tick) {
                         let line = format!(

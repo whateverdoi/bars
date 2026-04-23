@@ -1,7 +1,7 @@
 // src/bars.rs
 // 实现各类Bars的聚合逻辑
 
-use crate::types::{Tick, Bar};
+use crate::types::{Bar, Tick};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 
 #[derive(Debug, Clone, Copy)]
@@ -11,7 +11,7 @@ pub enum BarType {
     Tick(u64),
     Volume(u64),
     Dollar(f64),
-    
+
     // 信息驱动bars
     TickImbalance,
     VolumeImbalance,
@@ -64,7 +64,7 @@ impl BarAggregator {
 
     pub fn add_tick(&mut self, tick: Tick) -> Option<Bar> {
         let should_close = self.should_close_bar(&tick);
-        
+
         if should_close {
             let closed_bar = self.close_current_bar();
             self.start_new_bar(tick);
@@ -96,8 +96,12 @@ impl BarAggregator {
             BarType::Volume(vol) => self.volume_sum >= vol as f64,
             BarType::Dollar(amount) => self.dollar_sum >= amount,
             // 信息驱动的bar类型不应该在这里处理
-            BarType::TickImbalance | BarType::VolumeImbalance | BarType::DollarImbalance |
-            BarType::TickRun | BarType::VolumeRun | BarType::DollarRun => {
+            BarType::TickImbalance
+            | BarType::VolumeImbalance
+            | BarType::DollarImbalance
+            | BarType::TickRun
+            | BarType::VolumeRun
+            | BarType::DollarRun => {
                 panic!("Information-driven bar types should be handled by ImbalanceBarAggregator")
             }
         }
@@ -126,7 +130,9 @@ impl BarAggregator {
                 let period_ms = duration.num_milliseconds();
                 let ts = timestamp.timestamp_millis();
                 let rounded = (ts / period_ms) * period_ms;
-                Utc.timestamp_millis_opt(rounded).single().unwrap_or(timestamp)
+                Utc.timestamp_millis_opt(rounded)
+                    .single()
+                    .unwrap_or(timestamp)
             }
             _ => timestamp,
         }

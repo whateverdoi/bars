@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Direction {
-    Buy,   // 买单
-    Sell,  // 卖单
+    Buy,  // 买单
+    Sell, // 卖单
 }
 
 impl Direction {
@@ -30,9 +30,9 @@ pub struct Tick {
 
 impl Tick {
     pub fn new(timestamp: DateTime<Utc>, price: f64, volume: f64) -> Self {
-        Self { 
-            timestamp, 
-            price, 
+        Self {
+            timestamp,
+            price,
             volume,
             direction: None,
         }
@@ -55,8 +55,22 @@ pub struct Bar {
 }
 
 impl Bar {
-    pub fn new(open: f64, high: f64, low: f64, close: f64, volume: f64, timestamp: DateTime<Utc>) -> Self {
-        Self { open, high, low, close, volume, timestamp }
+    pub fn new(
+        open: f64,
+        high: f64,
+        low: f64,
+        close: f64,
+        volume: f64,
+        timestamp: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            open,
+            high,
+            low,
+            close,
+            volume,
+            timestamp,
+        }
     }
 }
 

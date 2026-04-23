@@ -1,7 +1,7 @@
 // src/information_driven.rs
 // 信息驱动的Bars实现
 
-use crate::types::{Tick, Bar, Direction, EWMACalculator};
+use crate::types::{Bar, Direction, EWMACalculator, Tick};
 use chrono::{DateTime, Utc};
 
 /// 信息驱动Bar的类型
@@ -19,6 +19,23 @@ pub enum InformationDrivenBarType {
     VolumeRun,
     /// Dollar Run Bars - 基于美元价值的运行
     DollarRun,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct InformationDrivenConfig {
+    pub alpha: f64,
+    pub min_ticks_per_bar: u64,
+    pub initial_expected_bar_length: f64,
+}
+
+impl Default for InformationDrivenConfig {
+    fn default() -> Self {
+        Self {
+            alpha: 0.2,
+            min_ticks_per_bar: 100,
+            initial_expected_bar_length: 20.0,
+        }
+    }
 }
 
 /// Tick Rule计算器 - 根据价格变化确定买卖方向
@@ -39,7 +56,7 @@ impl TickRuleCalculator {
     /// 根据tick rule计算tick的方向
     pub fn calculate_direction(&mut self, tick: &Tick) -> Direction {
         let price_change = tick.price - self.last_price;
-        
+
         let direction = if price_change > 0.0 {
             Direction::Buy
         } else if price_change < 0.0 {
@@ -51,7 +68,7 @@ impl TickRuleCalculator {
 
         self.last_direction = Some(direction);
         self.last_price = tick.price;
-        
+
         direction
     }
 
@@ -68,58 +85,74 @@ impl TickRuleCalculator {
 pub struct ImbalanceBarAggregator {
     bar_type: InformationDrivenBarType,
     tick_rule: TickRuleCalculator,
-    
+    min_ticks_per_bar: u64,
+
     // 当前bar的状态
     current_bar: Option<Bar>,
     bar_start_time: Option<DateTime<Utc>>,
-    
+
     // 累积值
-    theta: f64,  // 当前不平衡/运行值
-    volume_by_direction: (f64, f64),  // (buy_volume, sell_volume)
-    dollar_by_direction: (f64, f64),  // (buy_dollar, sell_dollar)
-    tick_count_by_direction: (u64, u64),  // (buy_count, sell_count)
-    
+    theta: f64,                          // 当前不平衡/运行值
+    volume_by_direction: (f64, f64),     // (buy_volume, sell_volume)
+    dollar_by_direction: (f64, f64),     // (buy_dollar, sell_dollar)
+    tick_count_by_direction: (u64, u64), // (buy_count, sell_count)
+
     // 参数估计器（使用EWMA）
-    alpha: f64,  // EWMA平滑系数
-    expected_bar_length: EWMACalculator,  // E_0[T]
-    buy_probability: EWMACalculator,  // P[b_t=1]
+    alpha: f64,                              // EWMA平滑系数
+    expected_bar_length: EWMACalculator,     // E_0[T]
+    buy_probability: EWMACalculator,         // P[b_t=1]
     buy_volume_expectation: EWMACalculator,  // E_0[v_t|b_t=1]
-    sell_volume_expectation: EWMACalculator,  // E_0[v_t|b_t=-1]
+    sell_volume_expectation: EWMACalculator, // E_0[v_t|b_t=-1]
     buy_dollar_expectation: EWMACalculator,
     sell_dollar_expectation: EWMACalculator,
 }
 
 impl ImbalanceBarAggregator {
     pub fn new(bar_type: InformationDrivenBarType, alpha: f64) -> Self {
+        let config = InformationDrivenConfig {
+            alpha,
+            ..InformationDrivenConfig::default()
+        };
+        Self::with_config(bar_type, config)
+    }
+
+    pub fn with_config(
+        bar_type: InformationDrivenBarType,
+        config: InformationDrivenConfig,
+    ) -> Self {
         let mut aggregator = Self {
             bar_type,
             tick_rule: TickRuleCalculator::new(),
-            
+            min_ticks_per_bar: config.min_ticks_per_bar,
+
             current_bar: None,
             bar_start_time: None,
-            
+
             theta: 0.0,
             volume_by_direction: (0.0, 0.0),
             dollar_by_direction: (0.0, 0.0),
             tick_count_by_direction: (0, 0),
-            
-            alpha,
-            expected_bar_length: EWMACalculator::new(alpha),
-            buy_probability: EWMACalculator::new(alpha),
-            buy_volume_expectation: EWMACalculator::new(alpha),
-            sell_volume_expectation: EWMACalculator::new(alpha),
-            buy_dollar_expectation: EWMACalculator::new(alpha),
-            sell_dollar_expectation: EWMACalculator::new(alpha),
+
+            alpha: config.alpha,
+            expected_bar_length: EWMACalculator::new(config.alpha),
+            buy_probability: EWMACalculator::new(config.alpha),
+            buy_volume_expectation: EWMACalculator::new(config.alpha),
+            sell_volume_expectation: EWMACalculator::new(config.alpha),
+            buy_dollar_expectation: EWMACalculator::new(config.alpha),
+            sell_dollar_expectation: EWMACalculator::new(config.alpha),
         };
-        
-        // 初始化默认值 - 使用合理的初始期望值
-        aggregator.expected_bar_length.update(100.0);  // 初始期望100个ticks
-        aggregator.buy_probability.update(0.5);  // 初始50%概率
+
+        // 初始化默认值。信息驱动 bars 对初值很敏感，过大的 E[T]
+        // 会把后续阈值迅速推高，导致 bar 数量过少。
+        aggregator
+            .expected_bar_length
+            .update(config.initial_expected_bar_length);
+        aggregator.buy_probability.update(0.5); // 初始50%概率
         aggregator.buy_volume_expectation.update(1000.0);
         aggregator.sell_volume_expectation.update(1000.0);
         aggregator.buy_dollar_expectation.update(100.0);
         aggregator.sell_dollar_expectation.update(100.0);
-        
+
         aggregator
     }
 
@@ -127,7 +160,10 @@ impl ImbalanceBarAggregator {
         // 计算tick的方向
         let direction = self.tick_rule.calculate_direction(&tick);
         tick.direction = Some(direction);
-        
+
+        let dollar = tick.price * tick.volume;
+        self.update_expectations_from_tick(direction, tick.volume, dollar);
+
         // 初始化bar
         if self.current_bar.is_none() {
             self.start_new_bar(&tick);
@@ -144,13 +180,29 @@ impl ImbalanceBarAggregator {
         }
     }
 
+    fn update_expectations_from_tick(&mut self, direction: Direction, volume: f64, dollar: f64) {
+        let buy_indicator = matches!(direction, Direction::Buy) as u8 as f64;
+        self.buy_probability.update(buy_indicator);
+
+        match direction {
+            Direction::Buy => {
+                self.buy_volume_expectation.update(volume);
+                self.buy_dollar_expectation.update(dollar);
+            }
+            Direction::Sell => {
+                self.sell_volume_expectation.update(volume);
+                self.sell_dollar_expectation.update(dollar);
+            }
+        }
+    }
+
     fn start_new_bar(&mut self, tick: &Tick) {
         self.bar_start_time = Some(tick.timestamp);
         self.theta = 0.0;
         self.volume_by_direction = (0.0, 0.0);
         self.dollar_by_direction = (0.0, 0.0);
         self.tick_count_by_direction = (0, 0);
-        
+
         self.current_bar = Some(Bar {
             open: tick.price,
             high: tick.price,
@@ -193,7 +245,7 @@ impl ImbalanceBarAggregator {
 
     fn update_theta(&mut self, tick: &Tick, direction: Direction) {
         let sign = direction.sign() as f64;
-        
+
         match self.bar_type {
             InformationDrivenBarType::TickImbalance => {
                 self.theta += sign;
@@ -225,8 +277,8 @@ impl ImbalanceBarAggregator {
 
     fn should_close_bar(&self) -> bool {
         let total_ticks = self.tick_count_by_direction.0 + self.tick_count_by_direction.1;
-        
-        if total_ticks < 1 {
+
+        if total_ticks < self.min_ticks_per_bar {
             return false;
         }
 
@@ -253,8 +305,8 @@ impl ImbalanceBarAggregator {
                 } else {
                     self.volume_by_direction.1 / (self.tick_count_by_direction.1.max(1) as f64)
                 };
-                let threshold =
-                    expected_length * (buy_prob * buy_vol_exp - (1.0 - buy_prob) * sell_vol_exp).abs();
+                let threshold = expected_length
+                    * (buy_prob * buy_vol_exp - (1.0 - buy_prob) * sell_vol_exp).abs();
                 self.theta.abs() >= threshold
             }
             InformationDrivenBarType::DollarImbalance => {
@@ -287,7 +339,8 @@ impl ImbalanceBarAggregator {
                 } else {
                     self.volume_by_direction.1 / (self.tick_count_by_direction.1.max(1) as f64)
                 };
-                let threshold = expected_length * (buy_prob * buy_vol_exp).max((1.0 - buy_prob) * sell_vol_exp);
+                let threshold =
+                    expected_length * (buy_prob * buy_vol_exp).max((1.0 - buy_prob) * sell_vol_exp);
                 self.theta >= threshold
             }
             InformationDrivenBarType::DollarRun => {
@@ -301,7 +354,8 @@ impl ImbalanceBarAggregator {
                 } else {
                     self.dollar_by_direction.1 / (self.tick_count_by_direction.1.max(1) as f64)
                 };
-                let threshold = expected_length * (buy_prob * buy_dollar_exp).max((1.0 - buy_prob) * sell_dollar_exp);
+                let threshold = expected_length
+                    * (buy_prob * buy_dollar_exp).max((1.0 - buy_prob) * sell_dollar_exp);
                 self.theta >= threshold
             }
         }
@@ -309,7 +363,7 @@ impl ImbalanceBarAggregator {
 
     fn estimated_buy_probability(&self, total_ticks: u64) -> f64 {
         if self.buy_probability.is_initialized() {
-            self.buy_probability.get()
+            self.buy_probability.get().clamp(0.05, 0.95)
         } else {
             self.tick_count_by_direction.0 as f64 / total_ticks as f64
         }
@@ -318,32 +372,16 @@ impl ImbalanceBarAggregator {
     fn close_current_bar(&mut self) -> Option<Bar> {
         if let Some(mut bar) = self.current_bar.take() {
             // 更新参数估计器
-            let total_ticks = (self.tick_count_by_direction.0 + self.tick_count_by_direction.1) as f64;
+            let total_ticks =
+                (self.tick_count_by_direction.0 + self.tick_count_by_direction.1) as f64;
             if total_ticks > 0.0 {
                 self.expected_bar_length.update(total_ticks);
-                
-                let buy_prob = self.tick_count_by_direction.0 as f64 / total_ticks;
-                self.buy_probability.update(buy_prob);
-                
-                if self.tick_count_by_direction.0 > 0 {
-                    let avg_buy_vol = self.volume_by_direction.0 / (self.tick_count_by_direction.0 as f64);
-                    self.buy_volume_expectation.update(avg_buy_vol);
-                    let avg_buy_dollar = self.dollar_by_direction.0 / (self.tick_count_by_direction.0 as f64);
-                    self.buy_dollar_expectation.update(avg_buy_dollar);
-                }
-                
-                if self.tick_count_by_direction.1 > 0 {
-                    let avg_sell_vol = self.volume_by_direction.1 / (self.tick_count_by_direction.1 as f64);
-                    self.sell_volume_expectation.update(avg_sell_vol);
-                    let avg_sell_dollar = self.dollar_by_direction.1 / (self.tick_count_by_direction.1 as f64);
-                    self.sell_dollar_expectation.update(avg_sell_dollar);
-                }
             }
 
             if let Some(start_time) = self.bar_start_time {
                 bar.timestamp = start_time;
             }
-            
+
             Some(bar)
         } else {
             None
@@ -358,5 +396,32 @@ impl ImbalanceBarAggregator {
 
     pub fn get_current_bar(&self) -> Option<&Bar> {
         self.current_bar.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ImbalanceBarAggregator, InformationDrivenBarType};
+    use crate::types::Tick;
+    use chrono::{TimeZone, Utc};
+
+    #[test]
+    fn info_driven_bars_do_not_close_before_minimum_tick_count() {
+        let mut aggregator =
+            ImbalanceBarAggregator::new(InformationDrivenBarType::TickImbalance, 0.2);
+
+        for tick_idx in 0..99 {
+            let bar = aggregator.add_tick(Tick::new(
+                Utc.with_ymd_and_hms(2026, 3, 1, 0, tick_idx / 60, tick_idx % 60)
+                    .unwrap(),
+                100.0 + tick_idx as f64,
+                1.0,
+            ));
+            assert!(
+                bar.is_none(),
+                "bar closed too early at tick {}",
+                tick_idx + 1
+            );
+        }
     }
 }

@@ -25,6 +25,18 @@ cargo run -- --input data/DOGEUSDT-aggTrades-2026-03.csv --output data/test_doll
 Volume Run Bar 示例：
 cargo run -- --input data/DOGEUSDT-aggTrades-2026-03.csv --output data/test_volume_run.csv --bar-type volume-run
 
+cargo run -- \
+  --input data/DOGEUSDT-aggTrades-2026-03.csv \
+  --output data/test_tick_imbalance.csv \
+  --bar-type tick-imbalance \
+  --info-min-ticks 50 \
+  --info-alpha 0.15 \
+  --info-init-expected-len 30
+
+
+
+
+
 > **注意**：aggtrades为聚合逐笔成交，可以在[binance](https://data.binance.vision/)下载
 
 

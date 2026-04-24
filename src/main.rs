@@ -63,7 +63,7 @@ impl Cli {
             BarTypeArg::Tick100 => BarType::Tick(100),
             BarTypeArg::Tick500 => BarType::Tick(500),
             BarTypeArg::Volume => BarType::Volume(1000000),
-            BarTypeArg::Dollar => BarType::Dollar(10000.0),
+            BarTypeArg::Dollar => BarType::Dollar(5000000.0),
 
             BarTypeArg::TickImbalance => BarType::TickImbalance,
             BarTypeArg::VolumeImbalance => BarType::VolumeImbalance,
